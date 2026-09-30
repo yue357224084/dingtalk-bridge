@@ -95,7 +95,15 @@ subscribed topic=/v1.0/im/bot/messages/get, connecting stream ...
 endpoint is {'endpoint': 'wss://wss-open-connection-union.dingtalk.com:443/connect', ...}
 ```
 
-> 更新代码：替换 `bridge.py` 后 `sudo systemctl restart dingtalk-bridge`。
+### 更新（推荐用脚本）
+
+在仓库根目录执行（上传新代码 → 备份 → 重启 → 校验；**不会**覆盖 `config.env` / `state.json`）：
+
+```bash
+./deploy/update-linux.sh -H root@<BRIDGE_HOST> [-P 22] [-d /opt/dingtalk-bridge] [-s dingtalk-bridge]
+```
+
+手动方式：替换 `bridge.py` 后 `sudo systemctl restart dingtalk-bridge`；出错可用脚本提示的回滚命令（`bridge.py.bak.<时间戳>`）。
 
 ## 5. 验收
 

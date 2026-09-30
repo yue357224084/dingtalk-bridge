@@ -44,6 +44,7 @@ dingtalk-bridge/
 │   └── config.env.example       # 桥接配置模板（复制为 config.env）
 ├── deploy/
 │   ├── dingtalk-bridge.service  # Linux systemd 单元
+│   ├── update-linux.sh          # 一键更新：上传新代码 → 重启 → 校验（不覆盖配置/映射）
 │   └── windows/                 # 同机（Windows）模式：常驻脚本 + 任务计划
 ├── docs/
 │   ├── deploy-linux.md          # 推荐部署方式（独立 Linux 主机 + systemd）
@@ -83,6 +84,8 @@ Windows     : C:\Users\<用户>\.config\opencode\plugins\
 |---|---|---|
 | **独立 Linux 主机 + systemd**（推荐） | 服务与 OpenChamber 分机部署，长期稳定 | [docs/deploy-linux.md](docs/deploy-linux.md) |
 | **与 OpenChamber 同机（Windows）** | 不想引入额外主机 | [docs/deploy-windows-local.md](docs/deploy-windows-local.md) |
+
+> **后续更新**：仓库根目录执行 `./deploy/update-linux.sh -H root@<BRIDGE_HOST> -P <ssh端口>`（自动备份、重启并校验；不覆盖 `config.env` 与 `state.json`）。详见 [docs/deploy-linux.md](docs/deploy-linux.md)。
 
 ## 配置项
 

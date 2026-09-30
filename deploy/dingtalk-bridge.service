@@ -1,0 +1,14 @@
+[Unit]
+Description=DingTalk <-> OpenChamber Bridge (Stream)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/dingtalk-bridge
+ExecStart=/opt/dingtalk-bridge/venv/bin/python -u /opt/dingtalk-bridge/bridge.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

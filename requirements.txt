@@ -1,0 +1,3 @@
+# 桥接服务依赖（bridge/bridge.py）
+dingtalk-stream>=0.24.3
+requests>=2.27

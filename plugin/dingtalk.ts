@@ -1,10 +1,17 @@
 // dingtalk.ts — OpenCode V2 本地插件（P1：会话总结 → 钉钉群）
 // 用法：在任意会话输入 /dd → 把本会话最后一条助手回复以 markdown 发送到钉钉群（自定义机器人 webhook）。
 // 配置：同目录 .env
-//   DD_WEBHOOK_URL  必填，目标群 webhook
+//   DD_SEND_MODE    robot（默认，企业应用机器人主动发送）| webhook（自定义群机器人）
+//   ── robot 模式（默认，与 Stream 桥接同一个企业应用）──
+//   DD_APP_CLIENT_ID / DD_APP_CLIENT_SECRET  企业应用凭证
+//   DD_ROBOT_CONVERSATION_ID                 目标群的 openConversationId（形如 cidXXXX==）
+//   DD_ROBOT_CODE                            可选，机器人编码（默认取 DD_APP_CLIENT_ID）
+//   ── webhook 模式（自定义群机器人）──
+//   DD_WEBHOOK_URL  目标群 webhook
+//   ── 通用 ──
 //   DD_TITLE        可选，消息标题（默认「会话总结」）
 //   DD_DRY_RUN=1    可选，只演练不发送（联调用）
-//   DD_AT_ALL=1     可选，消息 @所有人（默认关闭）
+//   DD_AT_ALL=1     可选，webhook 模式 @所有人（默认关闭；robot 模式不支持 @）
 //   DD_MAX_CHARS    可选，单条正文最大字符数（默认 18000，超出截断）
 //   DD_REHYDRATE=0  可选，关闭占位符还原（默认开启：把 [IPV4_n] 等还原为真值后发送）
 //   DD_RECEIPT      可选，synthetic=会话内合成回执（默认）；off=不写回执（仅日志）
@@ -203,10 +210,10 @@ async function findLastAssistantText(ctx: any, sessionID: string): Promise<strin
   return ""
 }
 
-// ---------- 发送 ----------
-async function sendDingtalk(text: string): Promise<{ ok: boolean; detail: string }> {
-  const url = (process.env.DD_WEBHOOK_URL || "").trim()
-  if (!url) return { ok: false, detail: "未配置 DD_WEBHOOK_URL（plugins/.env）" }
+// ---------- 发送（两种通道：robot 默认 / webhook 备选） ----------
+const tokenCache: { token?: string; expireAt: number } = { expireAt: 0 }
+
+function buildBody(text: string): { title: string; body: string; truncated: boolean } {
   const title = (process.env.DD_TITLE || "会话总结").trim() || "会话总结"
   const max = Math.max(1000, parseInt(process.env.DD_MAX_CHARS || "18000", 10) || 18000)
   let body = text
@@ -215,9 +222,68 @@ async function sendDingtalk(text: string): Promise<{ ok: boolean; detail: string
     body = body.slice(0, max) + "\n\n> （内容过长，已截断）"
     truncated = true
   }
-  if (process.env.DD_DRY_RUN === "1") {
-    return { ok: true, detail: `dry-run 未发送（${body.length} 字${truncated ? "，已截断" : ""}）` }
+  return { title, body, truncated }
+}
+
+async function getAccessToken(): Promise<{ ok: boolean; token?: string; detail?: string }> {
+  const id = (process.env.DD_APP_CLIENT_ID || "").trim()
+  const sec = (process.env.DD_APP_CLIENT_SECRET || "").trim()
+  if (!id || !sec) return { ok: false, detail: "未配置 DD_APP_CLIENT_ID / DD_APP_CLIENT_SECRET" }
+  const now = Date.now()
+  if (tokenCache.token && tokenCache.expireAt > now + 60_000) return { ok: true, token: tokenCache.token }
+  try {
+    const res = await fetch("https://api.dingtalk.com/v1.0/oauth2/accessToken", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ appKey: id, appSecret: sec }),
+      signal: AbortSignal.timeout(10000),
+    })
+    const data: any = await res.json().catch(() => null)
+    if (res.ok && data?.accessToken) {
+      tokenCache.token = data.accessToken
+      tokenCache.expireAt = now + (Number(data.expireIn || 7200) - 300) * 1000
+      flog("access_token 获取成功")
+      return { ok: true, token: data.accessToken }
+    }
+    return { ok: false, detail: `获取 access_token 失败：HTTP ${res.status} ${data ? JSON.stringify(data) : ""}`.trim() }
+  } catch (e: any) {
+    return { ok: false, detail: `获取 access_token 异常：${e?.message ?? String(e)}` }
   }
+}
+
+// robot 模式：企业应用机器人主动发送（不支持 @ 指定人）
+async function sendByRobot(title: string, body: string): Promise<{ ok: boolean; detail: string }> {
+  const conv = (process.env.DD_ROBOT_CONVERSATION_ID || "").trim()
+  if (!conv) return { ok: false, detail: "未配置 DD_ROBOT_CONVERSATION_ID（目标群 openConversationId）" }
+  const robotCode = (process.env.DD_ROBOT_CODE || process.env.DD_APP_CLIENT_ID || "").trim()
+  const at = await getAccessToken()
+  if (!at.ok || !at.token) return { ok: false, detail: at.detail || "access_token 不可用" }
+  const payload = {
+    robotCode,
+    openConversationId: conv,
+    msgKey: "sampleMarkdown",
+    msgParam: JSON.stringify({ title, text: `### ${title}\n${body}` }),
+  }
+  try {
+    const res = await fetch("https://api.dingtalk.com/v1.0/robot/groupMessages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-acs-dingtalk-access-token": at.token },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10000),
+    })
+    const data: any = await res.json().catch(() => null)
+    const errCode = data?.code ?? data?.errcode
+    if (res.ok && !errCode) return { ok: true, detail: `已发送（Stream 机器人，${body.length} 字）` }
+    return { ok: false, detail: `机器人发送失败：HTTP ${res.status} ${data ? JSON.stringify(data) : ""}`.trim() }
+  } catch (e: any) {
+    return { ok: false, detail: `机器人发送异常：${e?.message ?? String(e)}` }
+  }
+}
+
+// webhook 模式：自定义群机器人
+async function sendByWebhook(title: string, body: string): Promise<{ ok: boolean; detail: string }> {
+  const url = (process.env.DD_WEBHOOK_URL || "").trim()
+  if (!url) return { ok: false, detail: "未配置 DD_WEBHOOK_URL（plugins/.env）" }
   const payload = {
     msgtype: "markdown",
     markdown: { title, text: `### ${title}\n${body}` },
@@ -231,11 +297,17 @@ async function sendDingtalk(text: string): Promise<{ ok: boolean; detail: string
       signal: AbortSignal.timeout(10000),
     })
     const data: any = await res.json().catch(() => null)
-    if (res.ok && data?.errcode === 0) return { ok: true, detail: `发送成功（${body.length} 字）` }
+    if (res.ok && data?.errcode === 0) return { ok: true, detail: `已发送（自定义机器人，${body.length} 字）` }
     return { ok: false, detail: `钉钉返回异常：HTTP ${res.status} ${data ? JSON.stringify(data) : ""}`.trim() }
   } catch (e: any) {
     return { ok: false, detail: `请求异常：${e?.message ?? String(e)}` }
   }
+}
+
+async function sendTitleBody(title: string, body: string): Promise<{ ok: boolean; detail: string }> {
+  const mode = (process.env.DD_SEND_MODE || "robot").trim().toLowerCase()
+  if (mode === "webhook") return sendByWebhook(title, body)
+  return sendByRobot(title, body)
 }
 
 // ---------- 命令处理 ----------
@@ -265,9 +337,17 @@ async function handleDd(ctx: any, sessionID: string): Promise<void> {
         text = r.text
         if (r.before > 0) ph = `｜占位符 ${r.before} 个，已还原 ${r.after} 个`
       }
-      const res = await sendDingtalk(text)
+      const { title, body, truncated } = buildBody(text)
+      let res: { ok: boolean; detail: string }
+      if (process.env.DD_DRY_RUN === "1") {
+        res = { ok: true, detail: `dry-run 未发送（${body.length} 字${truncated ? "，已截断" : ""}）` }
+      } else {
+        res = await sendTitleBody(title, body)
+      }
       receipt = res.ok ? `钉钉发送完成：${res.detail}${ph}` : `钉钉发送失败：${res.detail}${ph}`
-      flog(`${res.ok ? "OK" : "FAIL"} session=${sessionID} chars=${text.length} ${res.detail}${ph}`)
+      flog(
+        `${res.ok ? "OK" : "FAIL"} session=${sessionID} mode=${(process.env.DD_SEND_MODE || "robot").toLowerCase()} chars=${text.length} ${res.detail}${ph}`,
+      )
     }
   } catch (e: any) {
     receipt = `执行异常：${e?.message ?? String(e)}`

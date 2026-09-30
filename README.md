@@ -75,6 +75,7 @@ Windows     : C:\Users\<用户>\.config\opencode\plugins\
 3. 「机器人与消息推送」→ 开启**机器人** → **消息接收模式 = Stream 模式** → 保存并**发布**
 4. 把机器人添加到一个**组织内部群**（群设置 → 机器人）
    - 群聊中机器人只能收到 **@它** 的消息；单聊消息全收
+5. 若要用 `/dd` 的默认通道（企业应用机器人发送）：在应用「权限管理」开通「**企业内机器人发送消息权限**」
 
 ### 3. 部署桥接服务
 
@@ -93,10 +94,14 @@ Windows     : C:\Users\<用户>\.config\opencode\plugins\
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DD_WEBHOOK_URL` | — | 群自定义机器人 webhook（`/dd` 发送用） |
+| `DD_SEND_MODE` | `robot` | `/dd` 发送通道：`robot`=企业应用机器人（默认）/ `webhook`=自定义群机器人 |
+| `DD_APP_CLIENT_ID` / `DD_APP_CLIENT_SECRET` | — | robot 模式：企业应用凭证（与 Stream 桥接同一个应用） |
+| `DD_ROBOT_CONVERSATION_ID` | — | robot 模式：目标群 `openConversationId`（形如 `cid…==`） |
+| `DD_ROBOT_CODE` | clientId | robot 模式：机器人编码（一般免填） |
+| `DD_WEBHOOK_URL` | — | webhook 模式：目标群 webhook |
 | `DD_TITLE` | `会话总结` | `/dd` 消息标题 |
 | `DD_DRY_RUN` | — | `1` 时只演练不发送 |
-| `DD_AT_ALL` | — | `1` 时 @所有人 |
+| `DD_AT_ALL` | — | webhook 模式 `1` 时 @所有人（robot 模式不支持 @） |
 | `DD_MAX_CHARS` | `18000` | `/dd` 正文截断长度 |
 | `DD_RECEIPT` | `synthetic` | `/dd` 回执；`off` 关闭 |
 | `DD_BIND` | `127.0.0.1` | 桥接接口监听地址；跨主机需 `0.0.0.0` |
@@ -123,7 +128,7 @@ Windows     : C:\Users\<用户>\.config\opencode\plugins\
 ## 使用
 
 - **群里提问**：`@机器人 你的问题` → 稍候收到回复；每个群/单聊自动对应一个独立 OpenCode 会话，上下文连续
-- **发总结**：在 OpenChamber 任意会话输入 `/dd` → 该会话最后一条回复以 markdown 发到钉钉群
+- **发总结**：在 OpenChamber 任意会话输入 `/dd` → 该会话最后一条回复以 markdown 发到钉钉群（默认经**企业应用机器人**发送；`.env` 里 `DD_SEND_MODE=webhook` 则改用自定义群机器人）
 
 ## 运行要求
 

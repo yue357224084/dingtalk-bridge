@@ -79,3 +79,12 @@
 
 - `config.env` / 插件 `.env` / `*.log` / `state.json` 均含敏感信息，**不要提交到版本库或外发**
 - 插件接口跨主机暴露时务必设置 `DD_ASK_TOKEN`，并限制来源网段
+
+## 12. `/dd` 机器人（robot）模式发送失败
+
+- 报权限/scope 类错误 → 开发者后台给应用开通「**企业内机器人发送消息权限**」（可能需发版生效）
+- 报机器人不在会话 / 会话不存在 → 目标群必须已加入该企业机器人，且 `DD_ROBOT_CONVERSATION_ID` 与该群一致
+- `openConversationId` 怎么拿：在目标群 @机器人 发一条消息，桥接日志（`DD_LOG_RAW=1`）里的 `conversationId`（形如 `cid…==`）即是
+- 想改回自定义机器人通道：插件 `.env` 里 `DD_SEND_MODE=webhook`（下次执行即生效，无需重启）
+- robot 模式**不支持 @ 指定人**（需要 @ 时用 webhook 模式）
+- 主动发送计入 API 调用量（标准版 1 万次/月），`/dd` 这类低频使用无感
